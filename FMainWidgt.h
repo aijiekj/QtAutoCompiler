@@ -43,6 +43,13 @@ public:
         eUnKnow_Error               //未识别错误
     };
 
+    enum eComplingStatus{
+        eCompile_Ready = 0,         //编译准备就绪
+        eCompile_Succeed,           //编译成功
+        eCompile_Error,             //编译出错
+        eCompile_Unknow             //编译未知错误
+    };
+
 private slots:
     //添加profile按钮单击处理事件
     void slot_AddProFileBtn_Clicked();
@@ -62,6 +69,8 @@ private slots:
     void slot_ProFileListTableView_CustomContextMenuRequested(const QPoint & pos);
     //删除菜单单击处理事件
     void slot_DelAct_Triggered();
+    //停止编译单击处理事件
+    void slot_StopCompiledBtn_Clicked();
 
 
 private:
@@ -83,6 +92,8 @@ private:
 
     //开始编译
     void sartCompling();
+    //初始化配置信息
+    void initConfigInfo();
 
 
 private:
@@ -94,8 +105,9 @@ private:
     QStandardItemModel  *m_pSourceProFileModel;
     QProcess            *m_pCurrProcess;
 
-    int                  m_nProcessFlg;
-    int                  m_nCurrentComplingIndex;
+    int                  m_nProcessFlg;                 //当前进程处理内容
+    int                  m_nCurrentComplingIndex;       //当前编译index
+    int                  m_nCurrentErrorCount;          //当前编译错误统计
 };
 
 #endif // FMAINWIDGT_H

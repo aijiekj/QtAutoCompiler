@@ -14,9 +14,11 @@ TEMPLATE = app
 
 SOURCES += main.cpp\
         FMainWidgt.cpp \
-    FTopTip.cpp
+    FTopTip.cpp \
+    FConfigerReader.cpp
 
 HEADERS  += FMainWidgt.h \
-    FTopTip.h
+    FTopTip.h \
+    FConfigerReader.h
 
 FORMS    += FMainWidgt.ui

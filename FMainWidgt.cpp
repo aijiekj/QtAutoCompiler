@@ -1,6 +1,7 @@
 #include "FMainWidgt.h"
 #include "ui_FMainWidgt.h"
 #include "FTopTip.h"
+#include "FConfigerReader.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -19,9 +20,12 @@ FMainWidgt::FMainWidgt(QWidget *parent) :
 
     m_pCurrProcess = new QProcess(this);
     m_nCurrentComplingIndex = 0;
+    m_nCurrentErrorCount = 0;
 
     initUI();
     initSignalSlot();
+
+    initConfigInfo();
 }
 
 FMainWidgt::~FMainWidgt()
@@ -59,6 +63,7 @@ void FMainWidgt::slot_AddProFileBtn_Clicked()
         QStandardItem *pStatusItem = new QStandardItem(nRecordNm, eCol_CompilingStatus);
         pStatusItem->setData(QString("就绪"), Qt::DisplayRole);
         pStatusItem->setData(Qt::AlignHCenter, Qt::TextAlignmentRole);
+        pStatusItem->setData(eCompile_Ready, Qt::UserRole+1);
         lRowItems.append(pStatusItem);
 
         m_pSourceProFileModel->appendRow(lRowItems);
@@ -87,10 +92,17 @@ void FMainWidgt::slot_CompilBtn_Clicked()
     }
 
     m_nCurrentComplingIndex = 0;
+    m_nCurrentErrorCount    = 0;
     ui->logTabWgt->show();
     ui->logTabWgt->setCurrentWidget(ui->normalLogTab);
 
+    ui->normalTextBw->clear();
+    ui->errorTextBw->clear();
+
     sartCompling();
+
+    FConfigerReader::getInstance().setToolsConfigInfo(ui->qmakePathLndt->text(),
+                                                      ui->makePathLndt->text());
 }
 
 //设置QMake路径
@@ -150,21 +162,29 @@ void FMainWidgt::slot_CurProcess_Finished(int nExitCode,
         else if(m_nProcessFlg == eCompiling_Process)
         {
             QString sStatus;
+            int nCompileResult = 0;
 
             if(nExitCode == 0)
             {
                 sStatus = QString("成功");
+                nCompileResult = eCompile_Succeed;
             }
             else if(nExitCode == 2)
             {
                 sStatus = QString("失败");
+                nCompileResult = eCompile_Error;
+                m_nCurrentErrorCount++;
             }
 
             m_pSourceProFileModel->setData(m_pSourceProFileModel->index(m_nCurrentComplingIndex, eCol_CompilingStatus),
                                            sStatus,
                                            Qt::DisplayRole);
 
-            QDir::setCurrent(QCoreApplication::applicationDirPath ());
+            m_pSourceProFileModel->setData(m_pSourceProFileModel->index(m_nCurrentComplingIndex, eCol_CompilingStatus),
+                                           nCompileResult,
+                                           Qt::UserRole+1);
+
+            QDir::setCurrent(QCoreApplication::applicationDirPath());
 
             m_nCurrentComplingIndex++;
 
@@ -220,23 +240,25 @@ void FMainWidgt::slot_ProFileListTableView_CustomContextMenuRequested(const QPoi
     m_pProFileTableMenu->exec(QCursor::pos());
 }
 
-////ProFile文件列表单击处理事件
-//void FMainWidgt::slot_ProFileListTableView_Pressed(const QModelIndex &index)
-//{
-//    if(!index.isValid())
-//    {
-//        return ;
-//    }
-
-//    m_pProFileTableMenu->move(QCursor::pos());
-//    m_pProFileTableMenu->show();
-//}
-
 //删除菜单单击处理事件
 void FMainWidgt::slot_DelAct_Triggered()
 {
     QModelIndex index = ui->proFileTableVw->currentIndex();
     m_pSourceProFileModel->removeRow(index.row());
+}
+
+//停止编译单击处理事件
+void FMainWidgt::slot_StopCompiledBtn_Clicked()
+{
+    if(m_pCurrProcess->isOpen())
+    {
+        m_pCurrProcess->close();
+    }
+
+    if(m_nCurrentErrorCount > 0)
+    {
+        ui->logTabWgt->setCurrentWidget(ui->errorLogTab);
+    }
 }
 
 //初始化UI
@@ -248,7 +270,6 @@ void FMainWidgt::initUI()
     m_pDelRowAct->setText(QString("删除"));
 
     m_pProFileTableMenu->addAction(m_pDelRowAct);
-
 
     //初始化profile文件列表
     initTableVw();
@@ -305,6 +326,8 @@ void FMainWidgt::initSignalSlot()
             this, SLOT(slot_DelAct_Triggered()));
     connect(ui->proFileTableVw, SIGNAL(customContextMenuRequested(QPoint)),
             this, SLOT(slot_ProFileListTableView_CustomContextMenuRequested(QPoint)));
+    connect(ui->stopCompiledBtn, SIGNAL(clicked()),
+            this, SLOT(slot_StopCompiledBtn_Clicked()));
 }
 
 //检查编译前状态
@@ -393,7 +416,33 @@ void FMainWidgt::sartCompling()
     if(m_nCurrentComplingIndex == m_pSourceProFileModel->rowCount())
     {
         setErrorStatusTip(eCompli_Completed);
+
+        if(m_nCurrentErrorCount > 0)
+        {
+            ui->logTabWgt->setCurrentWidget(ui->errorLogTab);
+        }
+
         return ;
+    }
+
+    //判断当前编译是否已经成功,如果成功跳转下一行,
+    int nCompileStatus = m_pSourceProFileModel->data(m_pSourceProFileModel->index(m_nCurrentComplingIndex,
+                                                              eCol_CompilingStatus),
+                                            Qt::UserRole+1).toInt();
+
+    while(nCompileStatus == eCompile_Succeed)
+    {
+        if(m_nCurrentComplingIndex + 1 >= m_pSourceProFileModel->rowCount())
+        {
+            setErrorStatusTip(eCompli_Completed);
+            return ;
+        }
+
+        m_nCurrentComplingIndex++;
+
+        nCompileStatus = m_pSourceProFileModel->data(m_pSourceProFileModel->index(m_nCurrentComplingIndex,
+                                                                      eCol_CompilingStatus),
+                                                    Qt::UserRole+1).toInt();
     }
 
     QString sProFileName = m_pSourceProFileModel->data(m_pSourceProFileModel->index(m_nCurrentComplingIndex,
@@ -422,6 +471,20 @@ void FMainWidgt::sartCompling()
 
     m_nProcessFlg = eCreateMakeFile_Process;
     m_pCurrProcess->start(ui->qmakePathLndt->text(), lArguments);
+}
 
-    //buildDir.cdUp();
+//初始化配置信息
+void FMainWidgt::initConfigInfo()
+{
+    QString sQMakePath, sMakePath;
+    FConfigerReader::getInstance().getToolsConfigInfo(sQMakePath, sMakePath);
+
+    ui->qmakePathLndt->setText(sQMakePath);
+    ui->makePathLndt->setText(sMakePath);
+
+    QStringList lArguments;
+    lArguments << "-v";
+
+    m_nProcessFlg = eGetQtVersion_Process;
+    m_pCurrProcess->start(sQMakePath, lArguments);
 }
